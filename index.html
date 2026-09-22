@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Localisation des TAF de France</title>
+<title>Localisation des TAF (trous à froid) de France et du monde</title>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -192,7 +192,8 @@
 
 <div id="app">
   <header>
-    <h1>Localisation des TAF de France</h1>
+    <h1>Localisation des TAF (trous à froid) de France et du monde</h1>
+    <a href="https://lameteorologie.fr/issues/2026/132/meteo_2026_132_45" target="_blank" rel="noopener" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:0.78rem;color:var(--ice);text-decoration:underline;">Qu'est-ce qu'un trou à froid ? ↗</a>
     <span id="count"></span>
   </header>
   <div id="map"></div>
@@ -212,6 +213,34 @@ let tafIndex = [];
 function normaliser(s) {
   return (s || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
+
+/* ============================================================
+   VISIONNEUSE PHOTO — ouvre l'image en plein écran au clic sur une vignette
+   ============================================================ */
+function ouvrirPhoto(url, source) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,28,46,0.9);z-index:5000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px;';
+
+  const conteneur = document.createElement('div');
+  conteneur.style.cssText = 'position:relative;max-width:92vw;max-height:92vh;';
+
+  const img = document.createElement('img');
+  img.src = url;
+  img.style.cssText = 'display:block;max-width:92vw;max-height:92vh;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,0.6);';
+  conteneur.appendChild(img);
+
+  if (source) {
+    const legende = document.createElement('div');
+    legende.textContent = source;
+    legende.style.cssText = 'position:absolute;bottom:0;left:0;right:0;padding:5px 10px;background:rgba(15,28,46,0.65);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:0.72rem;border-radius:0 0 4px 4px;';
+    conteneur.appendChild(legende);
+  }
+
+  overlay.appendChild(conteneur);
+  overlay.addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
+}
+window.ouvrirPhoto = ouvrirPhoto;
 
 /* ============================================================
    OUTILS POPUP
@@ -241,6 +270,11 @@ function popupPoint(props) {
   const lienDonnees = props["Lien_données"]
     ? `<p style="margin-top:6px;"><a href="${props["Lien_données"]}" target="_blank" rel="noopener">Voir les données ↗</a></p>`
     : "";
+  const photoHtml = props["Photo"]
+    ? `<img src="photos/vignettes/${props["Photo"]}.jpg" alt="Photo de ${nom}"
+         style="display:block;margin-top:8px;max-width:100%;border-radius:4px;cursor:zoom-in;"
+         onclick="ouvrirPhoto('photos/pleines/${props["Photo"]}.jpg', ${props["Photo_source"] ? `'${props["Photo_source"].replace(/'/g, "\\'")}'` : "null"})">`
+    : "";
   return `
     <div class="taf-popup">
       <h3>${nom}</h3>
@@ -256,12 +290,13 @@ function popupPoint(props) {
         ${ligne("Mesures connues", ouiNon(props["L_Mesures"]))}
         ${ligne("Matériel", props["Matériel"])}
         ${ligne("Nature du sol", props["Nature_sol"])}
-        ${ligne("TAF habité", props["TAF habité?"])}
+        ${(props["TAF habité?"] || "").toString().toLowerCase() === "oui" ? ligne("TAF habité", "Oui") : ""}
         ${tnnLigne}
         ${ligne("Période des relevés", props["T_Période de relevés"])}
         ${sourceTnn}
       </table>
       ${lienDonnees}
+      ${photoHtml}
     </div>
   `;
 }
@@ -311,15 +346,19 @@ const ignSatellite = L.tileLayer(
   'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg',
   { maxZoom: 19 }
 );
+const googleSatellite = L.tileLayer(
+  'https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+  { subdomains: ['mt0', 'mt1', 'mt2', 'mt3'], maxZoom: 20 }
+);
 const controlCouches = L.control.layers(
-  { "Relief (OpenTopoMap)": topo, "Plan (OSM)": osm, "Satellite (France)": ignSatellite },
+  { "Relief (OpenTopoMap)": topo, "Plan (OSM)": osm, "Satellite (France)": ignSatellite, "Satellite (Monde)": googleSatellite },
   {},
   { collapsed: false }
 ).addTo(map);
 
 // Attribution fixe, indépendante du fond de plan actif
 map.attributionControl.setPrefix('Leaflet');
-map.attributionControl.addAttribution('Fond: OpenTopoMap (CC-BY-SA), données OpenStreetMap - IGN - kaltluftseen.ch');
+map.attributionControl.addAttribution('Fond: OpenTopoMap (CC-BY-SA), OSM - IGN - Google - kaltluftseen.ch');
 
 /* ============================================================
    BOUTON — revenir à l'étendue par défaut
@@ -462,7 +501,7 @@ const MesureControl = L.Control.extend({
   onAdd: function (map) {
     const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
     const btn = L.DomUtil.create('a', 'barre-btn mesure-btn', container);
-    btn.innerHTML = '📏';
+    btn.innerHTML = '<svg viewBox="0 0 100 100" width="26" height="26" style="display:block;" xmlns="http://www.w3.org/2000/svg"><g transform="translate(4 4) rotate(-35 50 50)"><rect x="6" y="38" width="88" height="24" rx="3" fill="#FFE082" stroke="#8a6d1a" stroke-width="2.5"/><line x1="20" y1="38" x2="20" y2="50" stroke="#5c4813" stroke-width="2.5"/><line x1="35" y1="38" x2="35" y2="50" stroke="#5c4813" stroke-width="2.5"/><line x1="50" y1="38" x2="50" y2="62" stroke="#5c4813" stroke-width="2.5"/><line x1="65" y1="38" x2="65" y2="50" stroke="#5c4813" stroke-width="2.5"/><line x1="80" y1="38" x2="80" y2="50" stroke="#5c4813" stroke-width="2.5"/></g></svg>';
     btn.href = '#';
     btn.title = 'Mesurer une distance';
 
